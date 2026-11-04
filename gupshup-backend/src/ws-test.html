@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;padding:20px">
+  <h3>GUPSHUP WebSocket test</h3>
+  <input id="token" placeholder="Paste access token" style="width:420px">
+  <button onclick="connect()">Connect</button>
+  <pre id="log" style="background:#eee;padding:10px;height:300px;overflow:auto"></pre>
+
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+  <script>
+    const log = t => document.getElementById('log').textContent += t + '\n';
+    function connect() {
+      const client = new StompJs.Client({
+        brokerURL: 'ws://localhost:8080/ws',
+        connectHeaders: { Authorization: 'Bearer ' + document.getElementById('token').value },
+        onConnect: () => {
+          log('CONNECTED');
+          client.subscribe('/topic/chat', m => log('NEW: ' + m.body));
+          client.subscribe('/topic/chat.deleted', m => log('DELETED: ' + m.body));
+        },
+        onStompError: f => log('STOMP ERROR: ' + f.headers['message']),
+        onWebSocketClose: () => log('CLOSED')
+      });
+      client.activate();
+    }
+  </script>
+</body>
+</html>

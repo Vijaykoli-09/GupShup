@@ -3,6 +3,7 @@ import { StatusBar } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import UserNavigator from './src/navigation/UserNavigator';
 import { colors } from './src/shared';
+import { navigationRef } from './src/api';
 
 const theme = {
   ...DarkTheme,
@@ -18,7 +19,7 @@ const theme = {
 
 export default function App() {
   return (
-    <NavigationContainer theme={theme}>
+    <NavigationContainer theme={theme} ref={navigationRef}>
       <StatusBar barStyle="light-content" />
       <UserNavigator />
     </NavigationContainer>

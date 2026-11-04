@@ -1,0 +1,6 @@
+package gupshup_backend.entity;
+
+public enum ReportReason {
+    ABUSIVE_LANGUAGE, HARASSMENT, THREATS, FAKE_INFORMATION,
+    PERSONAL_INFORMATION, HATE_SPEECH, SPAM, SEXUAL_HARASSMENT, OTHER
+}

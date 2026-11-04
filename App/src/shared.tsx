@@ -17,7 +17,6 @@ export const colors = {
   error: '#EF4444',
 };
 
-// ---------- Navigation types ----------
 export type SignUpData = {
   firstName: string;
   lastName: string;
@@ -31,19 +30,10 @@ export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   Otp: SignUpData;
-  Passcode: SignUpData;
+  Passcode: { phone: string; registrationToken: string };
+  Consent: undefined;
   Chat: undefined;
   Settings: undefined;
-};
-
-// ---------- Demo data (replaced by backend later) ----------
-export type User = SignUpData & { pin: string };
-
-export const db: { users: User[]; currentUser: User | null } = {
-  users: [
-    { firstName: 'Demo', lastName: 'User', phone: '9999999999', city: 'Jaysingpur', pin: '9999' },
-  ],
-  currentUser: null,
 };
 
 export const DEMO_OTP = '123456';

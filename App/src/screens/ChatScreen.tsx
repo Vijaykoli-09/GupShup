@@ -1,33 +1,21 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, FlatList, KeyboardAvoidingView, Platform, StyleSheet,
+  Alert, AlertButton, FlatList, KeyboardAvoidingView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Client } from '@stomp/stompjs';
 import { colors, RootStackParamList } from '../shared';
+import { chatApi, ChatMessage, errMsg, getToken, userApi, WS_URL } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
-type Message = { id: string; user: string; text: string; time: Date };
-
-const MY_USERNAME = 'SilentTiger482'; // demo public username of the logged-in user
 const MAX_LENGTH = 500;
-const ONLINE_COUNT = 24;
 
-const minutesAgo = (m: number) => new Date(Date.now() - m * 60000);
-
-const DUMMY_MESSAGES: Message[] = [
-  { id: '1', user: 'BlueMoon173', text: 'Good morning Jaysingpur! Anyone knows a good mobile repair shop near the main market?', time: minutesAgo(95) },
-  { id: '2', user: 'CrazyFalcon821', text: 'Try the shop near the bus stand. They fixed my screen in one day.', time: minutesAgo(90) },
-  { id: '3', user: MY_USERNAME, text: 'Thanks, I will check it out today.', time: minutesAgo(86) },
-  { id: '4', user: 'HiddenWolf394', text: 'Is the road work near the market completed?', time: minutesAgo(60) },
-  { id: '5', user: 'SmartPanda621', text: 'I passed there this morning. Work is still going on, use the back lane.', time: minutesAgo(55) },
-  { id: '6', user: 'MidnightRider287', text: 'Any good place for breakfast nearby? Looking for misal pav.', time: minutesAgo(30) },
-  { id: '7', user: 'BlueMoon173', text: 'There is a small stall near the station, very tasty and cheap.', time: minutesAgo(26) },
-];
-
-const formatTime = (d: Date) => {
+const formatTime = (iso: string) => {
+  const d = new Date(iso);
   let h = d.getHours();
   const m = d.getMinutes().toString().padStart(2, '0');
   const ampm = h >= 12 ? 'PM' : 'AM';
@@ -36,80 +24,183 @@ const formatTime = (d: Date) => {
 };
 
 export default function ChatScreen({ navigation }: Props) {
-  const [messages, setMessages] = useState<Message[]>(DUMMY_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [me, setMe] = useState('');
   const [text, setText] = useState('');
-  const listRef = useRef<FlatList<Message>>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [live, setLive] = useState(false);
+  const listRef = useRef<FlatList<ChatMessage>>(null);
 
-  const canSend = text.trim().length > 0;
+  const load = useCallback(async () => {
+    try {
+      const [profile, list] = await Promise.all([userApi.me(), chatApi.messages()]);
+      setMe(profile.publicUsername);
+      setMessages(list);
+      setError('');
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const onSend = () => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setMessages(prev => [
-      ...prev,
-      { id: Date.now().toString(), user: MY_USERNAME, text: trimmed, time: new Date() },
+  // Reload whenever the screen is shown (for example after changing username in Settings).
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Live messages over WebSocket.
+  useEffect(() => {
+    const client = new Client({
+      brokerURL: WS_URL,
+      connectHeaders: { Authorization: `Bearer ${getToken()}` },
+      reconnectDelay: 5000,
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
+      onConnect: () => {
+        setLive(true);
+        load(); // catch up on anything missed while offline
+        client.subscribe('/topic/chat', frame => {
+          const ev = JSON.parse(frame.body) as ChatMessage;
+          setMessages(prev => (prev.some(m => m.id === ev.id) ? prev : [...prev, ev]));
+        });
+        client.subscribe('/topic/chat.deleted', frame => {
+          const { id } = JSON.parse(frame.body) as { id: number };
+          setMessages(prev => prev.filter(m => m.id !== id));
+        });
+      },
+      onWebSocketClose: () => setLive(false),
+    });
+    client.activate();
+    return () => { client.deactivate(); };
+  }, [load]);
+
+  const canSend = text.trim().length > 0 && !sending;
+
+  const onSend = async () => {
+    const t = text.trim();
+    if (!t || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      const saved = await chatApi.send(t, replyTo ? replyTo.id : null);
+      setMessages(prev => (prev.some(m => m.id === saved.id) ? prev : [...prev, saved]));
+      setText('');
+      setReplyTo(null);
+    } catch (e) {
+      setError(errMsg(e)); // slow mode, banned, consent and similar messages come from the server
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const confirmDelete = (m: ChatMessage) =>
+    Alert.alert('Delete message?', 'This removes it for everyone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await chatApi.remove(m.id);
+            setMessages(prev => prev.filter(x => x.id !== m.id));
+          } catch (e) {
+            setError(errMsg(e));
+          }
+        },
+      },
     ]);
-    setText('');
+
+  const onLongPress = (m: ChatMessage) => {
+    const buttons: AlertButton[] = [{ text: 'Reply', onPress: () => setReplyTo(m) }];
+    if (m.username === me) {
+      buttons.push({ text: 'Delete', style: 'destructive', onPress: () => confirmDelete(m) });
+    }
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Message', undefined, buttons);
   };
 
   const onInfo = () =>
     Alert.alert(
-      'Jaysingpur Community',
-      `Public community chat\n${ONLINE_COUNT} people online\n\nMessages clear every day at 3:00 AM IST.`,
+      'Sambhajipur Community',
+      'Public community chat.\n\nMessages clear every day at 3:00 AM IST.',
     );
 
-  const renderItem = ({ item }: { item: Message }) => {
-    const mine = item.user === MY_USERNAME;
+  const renderItem = ({ item }: { item: ChatMessage }) => {
+    const mine = item.username === me;
     return (
       <View style={[styles.row, mine ? styles.rowMine : styles.rowOther]}>
-        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
-          {!mine && <Text style={styles.username}>{item.user}</Text>}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onLongPress={() => onLongPress(item)}
+          style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
+          {!mine && <Text style={styles.username}>{item.username}</Text>}
+          {item.replyToId !== null && (
+            <View style={styles.quote}>
+              <Text style={styles.quoteUser}>{item.replyToUsername}</Text>
+              <Text style={styles.quoteText} numberOfLines={2}>{item.replyToText}</Text>
+            </View>
+          )}
           <Text style={styles.msgText}>{item.text}</Text>
-          <Text style={styles.time}>{formatTime(item.time)}</Text>
-        </View>
+          <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
+        </TouchableOpacity>
       </View>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Settings')}>
           <Text style={styles.icon}>⚙</Text>
         </TouchableOpacity>
-
         <View style={styles.titleWrap}>
-          <Text style={styles.title}>Jaysingpur Community</Text>
-          <Text style={styles.status}>● {ONLINE_COUNT} people online</Text>
+          <Text style={styles.title}>Sambhajipur Community</Text>
+          <Text style={[styles.status, { color: live ? colors.success : colors.subText }]}>
+            {live ? '● Live' : '○ Connecting...'}
+          </Text>
         </View>
-
         <TouchableOpacity style={styles.iconBtn} onPress={onInfo}>
           <Text style={styles.icon}>ⓘ</Text>
         </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        {/* Messages */}
         <FlatList
           ref={listRef}
           data={messages}
-          keyExtractor={m => m.id}
+          keyExtractor={m => String(m.id)}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListEmptyComponent={
-            <Text style={styles.empty}>No messages yet. Say hello to your community!</Text>
+            <Text style={styles.empty}>
+              {loading ? 'Loading...' : 'No messages yet. Say hello to your community!'}
+            </Text>
           }
         />
 
-        {/* Type bar */}
+        {!!error && <Text style={styles.error}>{error}</Text>}
+
+        {replyTo && (
+          <View style={styles.replyBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quoteUser}>Replying to {replyTo.username}</Text>
+              <Text style={styles.quoteText} numberOfLines={1}>{replyTo.text}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setReplyTo(null)} style={styles.iconBtn}>
+              <Text style={styles.icon}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.composer}>
           <View style={styles.inputWrap}>
             <TextInput
               style={styles.input}
               value={text}
-              onChangeText={setText}
+              onChangeText={t => { setText(t); setError(''); }}
               placeholder="Type a message"
               placeholderTextColor={colors.subText}
               multiline
@@ -123,7 +214,7 @@ export default function ChatScreen({ navigation }: Props) {
             style={[styles.sendBtn, !canSend && { opacity: 0.4 }]}
             disabled={!canSend}
             onPress={onSend}>
-            <Text style={styles.sendText}>Send</Text>
+            <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -133,16 +224,15 @@ export default function ChatScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-
   topBar: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.bg,
   },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  icon: { color: colors.lavender, fontSize: 24 },
+  icon: { color: colors.lavender, fontSize: 22 },
   titleWrap: { flex: 1, alignItems: 'center' },
   title: { color: colors.text, fontSize: 17, fontWeight: '700' },
-  status: { color: colors.success, fontSize: 12, marginTop: 2 },
+  status: { fontSize: 12, marginTop: 2 },
 
   list: { padding: 12, flexGrow: 1 },
   empty: { color: colors.subText, textAlign: 'center', marginTop: 40 },
@@ -158,6 +248,19 @@ const styles = StyleSheet.create({
   username: { color: colors.lavender, fontSize: 12, fontWeight: '700', marginBottom: 2 },
   msgText: { color: colors.text, fontSize: 15, lineHeight: 21 },
   time: { color: 'rgba(255,255,255,0.6)', fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
+
+  quote: {
+    backgroundColor: 'rgba(0,0,0,0.25)', borderLeftWidth: 3, borderLeftColor: colors.lavender,
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 6,
+  },
+  quoteUser: { color: colors.lavender, fontSize: 12, fontWeight: '700' },
+  quoteText: { color: colors.subText, fontSize: 12 },
+
+  error: { color: colors.error, fontSize: 13, paddingHorizontal: 14, paddingBottom: 6 },
+  replyBar: {
+    flexDirection: 'row', alignItems: 'center', paddingLeft: 14,
+    backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border,
+  },
 
   composer: {
     flexDirection: 'row', alignItems: 'flex-end', padding: 10,

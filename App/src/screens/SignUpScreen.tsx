@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  AppButton, AppInput, colors, db, digitsOnly, LIMITS, RootStackParamList,
+  AppButton, AppInput, colors, digitsOnly, LIMITS, RootStackParamList,
   validateCity, validateName, validatePhone,
 } from '../shared';
+import { ApiError, authApi, errMsg } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 
@@ -14,28 +15,45 @@ export default function SignUpScreen({ navigation }: Props) {
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const clear = (key: string) => setErrors(prev => ({ ...prev, [key]: '' }));
+  const clear = (key: string) => {
+    setErrors(prev => ({ ...prev, [key]: '' }));
+    setFormError('');
+  };
 
-  const onRegister = () => {
+  const onRegister = async () => {
     const e: Record<string, string> = {
       firstName: validateName(firstName, 'First name'),
       lastName: validateName(lastName, 'Last name'),
       phone: validatePhone(phone),
       city: validateCity(city),
     };
-    if (!e.phone && db.users.some(u => u.phone === phone)) {
-      e.phone = 'This number is already registered';
-    }
     setErrors(e);
     if (Object.values(e).some(Boolean)) return;
 
-    navigation.navigate('Otp', {
+    const data = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       phone,
       city: city.trim(),
-    });
+    };
+
+    setBusy(true);
+    setFormError('');
+    try {
+      await authApi.register(data);
+      navigation.navigate('Otp', data);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setErrors(prev => ({ ...prev, phone: err.message }));
+      } else {
+        setFormError(errMsg(err));
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -85,7 +103,8 @@ export default function SignUpScreen({ navigation }: Props) {
         autoCapitalize="words"
       />
 
-      <AppButton title="Register" onPress={onRegister} />
+      {!!formError && <Text style={styles.formError}>{formError}</Text>}
+      <AppButton title={busy ? 'Please wait...' : 'Register'} onPress={onRegister} disabled={busy} />
     </ScrollView>
   );
 }
@@ -94,4 +113,5 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   title: { color: colors.text, fontSize: 28, fontWeight: '700', marginTop: 16 },
   sub: { color: colors.subText, fontSize: 14, marginTop: 6, marginBottom: 24, lineHeight: 20 },
+  formError: { color: colors.error, fontSize: 13, marginBottom: 12 },
 });

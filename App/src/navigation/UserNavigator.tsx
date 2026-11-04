@@ -8,6 +8,7 @@ import LoginScreen from '../screens/LoginScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import OtpScreen from '../screens/OtpScreen';
 import PasscodeScreen from '../screens/PasscodeScreen';
+import ConsentScreen from '../screens/ConsentScreen';
 import ChatScreen from '../screens/ChatScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
@@ -30,8 +31,17 @@ export default function UserNavigator() {
       <Stack.Screen name="SignUp" component={SignUpScreen} />
       <Stack.Screen name="Otp" component={OtpScreen} />
       <Stack.Screen name="Passcode" component={PasscodeScreen} />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen
+        name="Consent"
+        component={ConsentScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
+      />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerTitle: 'Settings' }} />
     </Stack.Navigator>
   );
 }

@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  AppButton, AppInput, colors, db, digitsOnly, LIMITS, RootStackParamList,
+  AppButton, AppInput, colors, digitsOnly, LIMITS, RootStackParamList,
   validatePhone, validatePin,
 } from '../shared';
+import { authApi, errMsg, saveToken, userApi } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
@@ -12,18 +13,27 @@ export default function LoginScreen({ navigation }: Props) {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [errors, setErrors] = useState({ phone: '', pin: '' });
+  const [busy, setBusy] = useState(false);
 
-  const onLogin = () => {
+  const onLogin = async () => {
     const e = { phone: validatePhone(phone), pin: validatePin(pin) };
     setErrors(e);
     if (e.phone || e.pin) return;
 
-    const user = db.users.find(u => u.phone === phone);
-    if (!user) return setErrors({ phone: 'This number is not registered', pin: '' });
-    if (user.pin !== pin) return setErrors({ phone: '', pin: 'Incorrect PIN' });
-
-    db.currentUser = user;
-    navigation.reset({ index: 0, routes: [{ name: 'Chat' }] });
+    setBusy(true);
+    try {
+      const res = await authApi.login(phone, pin);
+      await saveToken(res.accessToken);
+      const me = await userApi.me();
+      navigation.reset({
+        index: 0,
+        routes: [{ name: me.consentAccepted ? 'Chat' : 'Consent' }],
+      });
+    } catch (err) {
+      setErrors({ phone: '', pin: errMsg(err) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -52,7 +62,7 @@ export default function LoginScreen({ navigation }: Props) {
         placeholder="****"
       />
 
-      <AppButton title="Login" onPress={onLogin} />
+      <AppButton title={busy ? 'Signing in...' : 'Login'} onPress={onLogin} disabled={busy} />
     </View>
   );
 }

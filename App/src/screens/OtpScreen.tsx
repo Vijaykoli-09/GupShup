@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  AppButton, AppInput, colors, DEMO_OTP, digitsOnly, LIMITS, RootStackParamList, validateOtp,
+  AppButton, AppInput, colors, DEMO_OTP, digitsOnly, LIMITS, RootStackParamList,
 } from '../shared';
+import { authApi, errMsg } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Otp'>;
 
@@ -12,6 +13,7 @@ export default function OtpScreen({ navigation, route }: Props) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [seconds, setSeconds] = useState(30);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -19,17 +21,30 @@ export default function OtpScreen({ navigation, route }: Props) {
     return () => clearTimeout(t);
   }, [seconds]);
 
-  const onVerify = () => {
-    const err = validateOtp(otp);
-    setError(err);
-    if (err) return;
-    navigation.navigate('Passcode', route.params);
+  const onVerify = async () => {
+    if (!otp) return setError('OTP is required');
+    if (!/^\d{6}$/.test(otp)) return setError('OTP must be exactly 6 digits');
+
+    setBusy(true);
+    try {
+      const res = await authApi.verifyOtp(phone, otp);
+      navigation.navigate('Passcode', { phone, registrationToken: res.registrationToken });
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const onResend = () => {
-    setSeconds(30);
+  const onResend = async () => {
     setOtp('');
     setError('');
+    try {
+      await authApi.register(route.params); // sends a new OTP
+      setSeconds(30);
+    } catch (e) {
+      setError(errMsg(e));
+    }
   };
 
   return (
@@ -48,7 +63,7 @@ export default function OtpScreen({ navigation, route }: Props) {
         placeholder="------"
       />
 
-      <AppButton title="Verify" onPress={onVerify} />
+      <AppButton title={busy ? 'Verifying...' : 'Verify'} onPress={onVerify} disabled={busy} />
 
       <TouchableOpacity
         disabled={seconds > 0}

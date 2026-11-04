@@ -2,10 +2,24 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, RootStackParamList } from '../shared';
+import { loadToken, userApi } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 const lines = ['Your town.', 'Your conversations.', 'Real people. Local talk.'];
+
+type Target = 'Welcome' | 'Consent' | 'Chat';
+
+const decideTarget = async (): Promise<Target> => {
+  const token = await loadToken();
+  if (!token) return 'Welcome';
+  try {
+    const me = await userApi.me();
+    return me.consentAccepted ? 'Chat' : 'Consent';
+  } catch {
+    return 'Welcome';
+  }
+};
 
 export default function SplashScreen({ navigation }: Props) {
   const nameAnim = useRef(new Animated.Value(0)).current;
@@ -23,8 +37,16 @@ export default function SplashScreen({ navigation }: Props) {
       Animated.timing(fadeOut, { toValue: 0, duration: 400, useNativeDriver: true }),
     ]).start();
 
-    const t = setTimeout(() => navigation.replace('Welcome'), 3000);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    const run = async () => {
+      const [target] = await Promise.all([
+        decideTarget(),
+        new Promise<void>(resolve => setTimeout(resolve, 3000)),
+      ]);
+      if (!cancelled) navigation.replace(target as 'Welcome');
+    };
+    run();
+    return () => { cancelled = true; };
   }, []);
 
   const floatStyle = (v: Animated.Value) => ({

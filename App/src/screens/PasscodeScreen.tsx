@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  AppButton, AppInput, colors, db, digitsOnly, LIMITS, RootStackParamList, validatePin,
+  AppButton, AppInput, colors, digitsOnly, LIMITS, RootStackParamList, validatePin,
 } from '../shared';
+import { authApi, errMsg } from '../api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Passcode'>;
 
@@ -11,16 +12,24 @@ export default function PasscodeScreen({ navigation, route }: Props) {
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const onSet = () => {
+  const onSet = async () => {
     const err = validatePin(pin);
     if (err) return setError(err);
     if (pin !== confirm) return setError('PINs do not match');
 
-    db.users.push({ ...route.params, pin });
-    Alert.alert('Success', 'Your PIN is set. Please login.', [
-      { text: 'OK', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Login' }] }) },
-    ]);
+    setBusy(true);
+    try {
+      await authApi.setPasscode(route.params.registrationToken, pin);
+      Alert.alert('Success', 'Your account is ready. Please login.', [
+        { text: 'OK', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Login' }] }) },
+      ]);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -48,7 +57,7 @@ export default function PasscodeScreen({ navigation, route }: Props) {
         error={error}
       />
 
-      <AppButton title="Set PIN" onPress={onSet} />
+      <AppButton title={busy ? 'Please wait...' : 'Set PIN'} onPress={onSet} disabled={busy} />
     </View>
   );
 }
