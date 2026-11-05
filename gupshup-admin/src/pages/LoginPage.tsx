@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { post, setToken, USE_MOCK } from '../api';
+import { post, setToken } from '../api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -47,11 +47,6 @@ export default function LoginPage() {
         <button style={{ width: '100%' }} onClick={onLogin} disabled={busy}>
           {busy ? 'Signing in...' : 'Login'}
         </button>
-        {USE_MOCK && (
-          <p className="muted" style={{ fontSize: 12 }}>
-            Demo mode: admin@gupshup.com / admin123
-          </p>
-        )}
       </div>
     </div>
   );

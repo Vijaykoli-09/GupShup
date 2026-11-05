@@ -1,21 +1,15 @@
-// true  = use fake data from mock.ts (no backend needed)
-// false = call the real Spring Boot backend
-export const USE_MOCK = false;
+// Switch by commenting one line and uncommenting the other.
+// const BASE_URL = 'http://localhost:8080';                 // LOCAL testing
+const BASE_URL = 'https://gupshup-k3oz.onrender.com';        // PRODUCTION (Render)
 
-const BASE_URL = 'http://localhost:8080';
 const TOKEN_KEY = 'gupshup_admin_token';
 
-// sessionStorage clears when the tab closes. Fine for development.
+// sessionStorage clears when the tab closes.
 export const getToken = () => sessionStorage.getItem(TOKEN_KEY);
 export const setToken = (t: string) => sessionStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  if (USE_MOCK) {
-    const { mockApi } = await import('./mock');
-    return (await mockApi(path, options)) as T;
-  }
-
   const token = getToken();
   let res: Response;
   try {
@@ -28,7 +22,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
       },
     });
   } catch {
-    throw new Error('Cannot reach the server. Is the backend running?');
+    throw new Error('Cannot reach the server. It may be waking up, so wait a minute and try again.');
   }
 
   const data = await res.json().catch(() => ({}));
