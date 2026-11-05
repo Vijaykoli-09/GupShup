@@ -7,8 +7,11 @@ import gupshup_backend.util.UsernameGenerator;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
 
 @Component
+@ConditionalOnProperty(name = "app.demo.seed", havingValue = "true")
 public class DemoDataSeeder implements CommandLineRunner {
 
     private final UserRepository users;

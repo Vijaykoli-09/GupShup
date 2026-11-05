@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, AlertButton, FlatList, KeyboardAvoidingView, StyleSheet,
-  Text, TextInput, TouchableOpacity, View,
+  Alert, FlatList, KeyboardAvoidingView, StyleSheet, Text, TextInput,
+  TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Client } from '@stomp/stompjs';
 import { colors, RootStackParamList } from '../shared';
-import { chatApi, ChatMessage, errMsg, getToken, userApi, WS_URL } from '../api';
+import {
+  chatApi, ChatMessage, errMsg, getToken, safetyApi, userApi, WS_URL,
+} from '../api';
+import SwipeRow from '../components/SwipeRow';
+import { ActionSheet, ReportSheet, SheetAction } from '../components/ChatSheets';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -32,6 +36,8 @@ export default function ChatScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [live, setLive] = useState(false);
+  const [actionTarget, setActionTarget] = useState<ChatMessage | null>(null);
+  const [report, setReport] = useState<{ kind: 'message' | 'user'; msg: ChatMessage } | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   const load = useCallback(async () => {
@@ -47,10 +53,8 @@ export default function ChatScreen({ navigation }: Props) {
     }
   }, []);
 
-  // Reload whenever the screen is shown (for example after changing username in Settings).
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Live messages over WebSocket.
   useEffect(() => {
     const client = new Client({
       brokerURL: WS_URL,
@@ -60,7 +64,7 @@ export default function ChatScreen({ navigation }: Props) {
       appendMissingNULLonIncoming: true,
       onConnect: () => {
         setLive(true);
-        load(); // catch up on anything missed while offline
+        load();
         client.subscribe('/topic/chat', frame => {
           const ev = JSON.parse(frame.body) as ChatMessage;
           setMessages(prev => (prev.some(m => m.id === ev.id) ? prev : [...prev, ev]));
@@ -89,7 +93,7 @@ export default function ChatScreen({ navigation }: Props) {
       setText('');
       setReplyTo(null);
     } catch (e) {
-      setError(errMsg(e)); // slow mode, banned, consent and similar messages come from the server
+      setError(errMsg(e));
     } finally {
       setSending(false);
     }
@@ -112,28 +116,43 @@ export default function ChatScreen({ navigation }: Props) {
       },
     ]);
 
-  const onLongPress = (m: ChatMessage) => {
-    const buttons: AlertButton[] = [{ text: 'Reply', onPress: () => setReplyTo(m) }];
+  // Long-press menu: own messages can be deleted, others' messages can be reported.
+  const actionsFor = (m: ChatMessage): SheetAction[] => {
     if (m.username === me) {
-      buttons.push({ text: 'Delete', style: 'destructive', onPress: () => confirmDelete(m) });
+      return [{
+        label: 'Delete message', danger: true,
+        onPress: () => { setActionTarget(null); confirmDelete(m); },
+      }];
     }
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    Alert.alert('Message', undefined, buttons);
+    return [
+      { label: 'Report message', onPress: () => { setActionTarget(null); setReport({ kind: 'message', msg: m }); } },
+      { label: 'Report user', onPress: () => { setActionTarget(null); setReport({ kind: 'user', msg: m }); } },
+    ];
+  };
+
+  const submitReport = async (reason: string, description: string) => {
+    if (!report) return;
+    if (report.kind === 'message') {
+      await safetyApi.reportMessage(report.msg.id, reason, description);
+    } else {
+      await safetyApi.reportUser(report.msg.username, reason, description);
+    }
+    Alert.alert('Report submitted', 'Thank you. Our moderators will review it.');
   };
 
   const onInfo = () =>
     Alert.alert(
-      'Sambhajipur Community',
-      'Public community chat.\n\nMessages clear every day at 3:00 AM IST.',
+      'Jaysingpur Community',
+      'Public community chat.\n\nSwipe a message right to reply.\nPress and hold to report.\n\nMessages clear every day at 3:00 AM IST.',
     );
 
   const renderItem = ({ item }: { item: ChatMessage }) => {
     const mine = item.username === me;
     return (
-      <View style={[styles.row, mine ? styles.rowMine : styles.rowOther]}>
+      <SwipeRow mine={mine} onSwipeReply={() => setReplyTo(item)}>
         <TouchableOpacity
           activeOpacity={0.85}
-          onLongPress={() => onLongPress(item)}
+          onLongPress={() => setActionTarget(item)}
           style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
           {!mine && <Text style={styles.username}>{item.username}</Text>}
           {item.replyToId !== null && (
@@ -145,7 +164,7 @@ export default function ChatScreen({ navigation }: Props) {
           <Text style={styles.msgText}>{item.text}</Text>
           <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
         </TouchableOpacity>
-      </View>
+      </SwipeRow>
     );
   };
 
@@ -156,7 +175,7 @@ export default function ChatScreen({ navigation }: Props) {
           <Text style={styles.icon}>⚙</Text>
         </TouchableOpacity>
         <View style={styles.titleWrap}>
-          <Text style={styles.title}>Sambhajipur Community</Text>
+          <Text style={styles.title}>Jaysingpur Community</Text>
           <Text style={[styles.status, { color: live ? colors.success : colors.subText }]}>
             {live ? '● Live' : '○ Connecting...'}
           </Text>
@@ -218,6 +237,19 @@ export default function ChatScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ActionSheet
+        visible={!!actionTarget}
+        title={actionTarget ? actionTarget.username : ''}
+        actions={actionTarget ? actionsFor(actionTarget) : []}
+        onClose={() => setActionTarget(null)}
+      />
+      <ReportSheet
+        visible={!!report}
+        title={report?.kind === 'user' ? `Report ${report.msg.username}` : 'Report this message'}
+        onClose={() => setReport(null)}
+        onSubmit={submitReport}
+      />
     </SafeAreaView>
   );
 }
@@ -236,9 +268,6 @@ const styles = StyleSheet.create({
 
   list: { padding: 12, flexGrow: 1 },
   empty: { color: colors.subText, textAlign: 'center', marginTop: 40 },
-  row: { marginBottom: 10, flexDirection: 'row' },
-  rowMine: { justifyContent: 'flex-end' },
-  rowOther: { justifyContent: 'flex-start' },
   bubble: { maxWidth: '80%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
   bubbleMine: { backgroundColor: colors.primary, borderBottomRightRadius: 4 },
   bubbleOther: {

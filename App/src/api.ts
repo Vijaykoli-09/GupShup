@@ -126,3 +126,10 @@ export const chatApi = {
     request<ChatMessage>('/api/chat/messages', 'POST', { text, replyToId }),
   remove: (id: number) => request<{ message: string }>(`/api/chat/messages/${id}`, 'DELETE'),
 };
+
+export const safetyApi = {
+  reportMessage: (id: number, reason: string, description: string) =>
+    request<{ message: string }>(`/api/safety/messages/${id}/report`, 'POST', { reason, description }),
+  reportUser: (username: string, reason: string, description: string) =>
+    request<{ message: string }>('/api/safety/users/report', 'POST', { username, reason, description }),
+};
