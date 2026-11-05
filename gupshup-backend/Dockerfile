@@ -7,7 +7,7 @@ COPY mvnw pom.xml ./
 COPY .mvn .mvn
 RUN sed -i 's/\r$//' mvnw && chmod +x mvnw && ./mvnw -q dependency:go-offline
 
-# Copy the source and build
+# Copy the source (includes the single application.properties) and build
 COPY src src
 RUN ./mvnw -q -DskipTests package
 
@@ -20,7 +20,10 @@ RUN useradd --system --no-create-home appuser
 COPY --from=build /app/target/*.jar app.jar
 USER appuser
 
-# Use the production profile and keep memory inside Render's 512 MB free limit
+# The "prod" profile no longer loads a file. It only switches on ProdSafetyCheck,
+# which refuses to start with a weak JWT secret, a weak admin password, demo data on,
+# or localhost in CORS. All values still come from application.properties Option A
+# and the 7 environment variables on Render.
 ENV SPRING_PROFILES_ACTIVE=prod
 ENV JAVA_TOOL_OPTIONS="-Xmx320m -XX:+UseSerialGC"
 
